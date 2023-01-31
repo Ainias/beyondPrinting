@@ -1,0 +1,5 @@
+.idea/
+node_modules/
+extension/dev/
+extension/build/
+.env.local

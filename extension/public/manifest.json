@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "version": "0.1.0",
+  "short_name": "BeyondPrinting",
+  "name": "__MSG_appName__",
+  "description": "__MSG_appDesc__",
+  "default_locale": "en",
+  "background": {
+    "service_worker": "background.bundle.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.dndbeyond.com/sources/*",
+        "https://dndbeyond.com/sources/*"
+      ],
+      "js": ["contentScript.bundle.js"]
+    }
+  ],
+  "action": {
+    "default_icon": "img/dndSingle64.png"
+  },
+  "permissions": [
+  ],
+  "host_permissions": [
+    "https://*.dndbeyond.com/",
+    "https://dndbeyond.com/"
+  ],
+  "icons": {
+    "128": "img/dndScreen128.png"
+  }
+}

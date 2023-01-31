@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "BeyondPrinting",
+    "description": "The name of the extension, displayed in the web store"
+  },
+  "appDesc": {
+    "message": "Print your books on D&DBeyond",
+    "description": "The description of the extension, displayed in the web store"
+  }
+}
