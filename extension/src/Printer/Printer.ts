@@ -1,15 +1,20 @@
 import {log} from "../helper/log";
-import {ArrayHelper} from "js-helper";
+import {ArrayHelper, PromiseWithHandlers} from "js-helper";
+import {createButton} from "../helper/createButton";
 
 const extensionName = "BeyondPrinting";
 
 export class Printer {
 
-    private config = {
+    private static readonly SELECTORS = {
+        TOC: '.compendium-toc-full-text',
+    }
+
+    private readonly config = {
         minPageDelay: 0,
         maxPageDelay: 0,
         strippedTables: true,
-        includeCover: false, // Not working, always disables
+        includeCover: true,
         includeIntroduction: true,
         includeBacklinks: true,
 
@@ -17,7 +22,17 @@ export class Printer {
         includeForDndInTitle: true,
         includeUsername: true,
         includePrintedWithHint: true,
-    } as const
+
+        failOnError: true,
+        downloadHtml: true,
+
+        includePlayerVersionMaps: true,
+        useBigMapImages: true,
+
+        headingOnNewPage: true,
+
+        waitForUserConfirmationAfterPrint: false,
+    };
 
     private readonly url: string;
 
@@ -32,15 +47,33 @@ export class Printer {
     private preTableOfContentParts: string[] = [];
     private bodyParts: string[] = [];
 
+    private singlePage: boolean | undefined = undefined;
+
+    private onDoneListener = () => window.location.reload();
+
     private onProgress?: (done: number, from: number) => void;
 
-    constructor(url: string, config: Partial<Printer["config"]> = {}, onProgress?: Printer["onProgress"]) {
+    constructor(url: string, config: Partial<Printer["config"]> = {}, onProgress?: Printer["onProgress"], onDone = () => window.location.reload()) {
         this.url = url;
         this.config = {...this.config, ...config};
         this.onProgress = onProgress;
+        this.onDoneListener = onDone;
     }
 
-    private static async fetch(url: string) {
+    public isSinglePage() {
+        if (this.singlePage === undefined && this.baseDoc) {
+            this.singlePage = !this.baseDoc.querySelector(Printer.SELECTORS.TOC);
+        }
+        return this.singlePage;
+    }
+
+    private async loadBaseDocument() {
+        if (!this.baseDoc) {
+            this.baseDoc = await Printer.fetch(this.url);
+        }
+    }
+
+    public static async fetch(url: string) {
         return fetch(url).then(r => r.text()).then(html => new DOMParser().parseFromString(html, "text/html"));
     }
 
@@ -49,29 +82,35 @@ export class Printer {
             return;
         }
 
-        const toc = this.baseDoc.querySelector<HTMLDivElement>('.compendium-toc-full-text');
-        if (!toc) {
+        const tocs = this.baseDoc.querySelectorAll<HTMLDivElement>(Printer.SELECTORS.TOC);
+        const firstToc = tocs[0];
+
+        log("Tocs", tocs);
+        if (!firstToc) {
             return;
         }
 
-        toc.id = "toc";
-        const linkElements = toc.querySelectorAll("a");
+        firstToc.id = "toc";
 
-        linkElements.forEach((a) => {
-            const [href, fragment] = a.href.split("#");
-            if (!this.subPages.includes(href)) {
-                this.subPages.push(href);
-                this.mainLinkElements[href] = a;
-                this.linkElementsWithFragments[href] = [];
-            }
+        tocs.forEach(toc => {
+            const linkElements = toc.querySelectorAll("a");
+            linkElements.forEach((a) => {
+                const [href, fragment] = a.href.split("#");
 
-            if (fragment) {
-                this.linkElementsWithFragments[href].push(a);
-            }
+                if (!this.subPages.includes(href)) {
+                    this.subPages.push(href);
+                    this.mainLinkElements[href] = a;
+                    this.linkElementsWithFragments[href] = [];
+                }
+
+                if (fragment) {
+                    this.linkElementsWithFragments[href].push(a);
+                }
+            });
         });
     }
 
-    private extractTitle(excludeForDnDHint = false) {
+    extractTitle(excludeForDnDHint = false) {
         let title = this.baseDoc?.querySelector<HTMLHeadingElement>(".page-title")?.innerText ?? "";
         if (title && this.config.includeForDndInTitle && !excludeForDnDHint) {
             title += " for Dungeons and Dragons Fifth Edition";
@@ -117,7 +156,7 @@ export class Printer {
             return;
         }
 
-        const toc = this.baseDoc.querySelector<HTMLDivElement>('.compendium-toc-full-text');
+        const toc = this.baseDoc.querySelector<HTMLDivElement>(Printer.SELECTORS.TOC);
         const linkContainer = this.baseDoc.createElement("h3");
         const linkElement = this.baseDoc.createElement("a");
         linkElement.href = link;
@@ -136,7 +175,7 @@ export class Printer {
         const link = this.baseDoc.querySelector<HTMLAnchorElement>(".view-cover-art a")?.href;
         log("Cover-Art lint", link);
         if (link) {
-            this.preTableOfContentParts.push(`<div class="print-section cover-img left">
+            this.preTableOfContentParts.push(`<div class="print-section cover-img">
                     <img src="${link}" alt="cover" />
                 </div>`);
         }
@@ -147,6 +186,14 @@ export class Printer {
 
         log('Fetching page ', pageName);
         const pageDocument = await Printer.fetch(subPage);
+
+        if (!pageDocument.querySelector('.p-article-content')) {
+            if (this.config.failOnError) {
+                throw new Error(`Could not find page "${pageName}". \nMake sure you have access to the book!`);
+            } else {
+                return "";
+            }
+        }
 
         const headerElements: string[] = [];
 
@@ -173,7 +220,7 @@ export class Printer {
             // Update main Link to chapter
             if (this.mainLinkElements[subPage]) {
                 this.mainLinkElements[subPage].href = `#${id}`;
-                if (this.config.includeBacklinks) {
+                if (this.config.includeBacklinks && !this.isSinglePage()) {
                     const backlink = document.createElement("a");
                     backlink.innerHTML = "&uarr;";
                     backlink.href = "#toc";
@@ -186,7 +233,7 @@ export class Printer {
             pageDocument.querySelectorAll<HTMLHeadingElement>(".primary-content h2.heading-anchor").forEach(heading => {
                 if (heading.id) {
                     heading.id = `${id}-${heading.id}`;
-                    if (this.config.includeBacklinks) {
+                    if (this.config.includeBacklinks && !this.isSinglePage()) {
                         const backlink = document.createElement("a");
                         backlink.innerHTML = "&uarr;";
                         backlink.href = "#toc";
@@ -201,6 +248,58 @@ export class Printer {
                 linkElement.href = `#${id}-${fragment}`;
             });
         }
+
+
+        pageDocument.querySelectorAll<HTMLLinkElement>("figure > a + figcaption > a[data-title='View Player Version']").forEach(linkElem => {
+            if (this.config.useBigMapImages) {
+                const dmFigureElement = linkElem.parentElement?.parentElement as HTMLElement | undefined;
+                const dmImgElem = dmFigureElement?.querySelector("img") as HTMLImageElement | undefined;
+                const dmLinkElem = dmFigureElement?.firstElementChild as HTMLLinkElement | undefined;
+                if (dmImgElem && dmLinkElem) {
+                    dmImgElem.src = dmLinkElem.href;
+                    dmImgElem.style.width = "100%";
+                }
+            }
+            if (this.config.includePlayerVersionMaps) {
+                linkElem.classList.remove("ddb-lightbox-outer");
+                linkElem.classList.add("compendium-image-center");
+                const imgElement = pageDocument.createElement("img");
+                imgElement.src = linkElem.href;
+                linkElem.innerText = "";
+                linkElem.appendChild(imgElement);
+
+                const textNode = linkElem.parentElement?.firstChild;
+                if (textNode) {
+                    textNode.nodeValue += "(DM-Version above, Player-Version below) ";
+                }
+            }
+        });
+
+        pageDocument.querySelectorAll<HTMLLinkElement>(".compendium-image-view-player a").forEach(linkElem => {
+            const dmFigureElement = linkElem.parentElement?.previousElementSibling as HTMLElement | undefined;
+            if (this.config.useBigMapImages) {
+                const dmImgElem = dmFigureElement?.querySelector("img") as HTMLImageElement | undefined;
+                const dmLinkElem = dmFigureElement?.querySelector("a") as HTMLLinkElement | undefined;
+                if (dmImgElem && dmLinkElem) {
+                    dmImgElem.src = dmLinkElem.href;
+                    dmImgElem.style.width = "100%";
+                }
+            }
+            if (this.config.includePlayerVersionMaps) {
+                linkElem.classList.remove("ddb-lightbox-outer");
+                linkElem.classList.add("compendium-image-center");
+                const imgElement = pageDocument.createElement("img");
+                imgElement.src = linkElem.href;
+                linkElem.innerText = "";
+                linkElem.appendChild(imgElement);
+
+                const textNode = dmFigureElement?.querySelector("h4")?.lastChild;
+                if (textNode) {
+                    textNode.nodeValue += " (DM-Version above, Player-Version below) ";
+                }
+            }
+        });
+
 
         const siteHtml = `<div class="print-section">${pageDocument.querySelector('.p-article-content')?.innerHTML}</div>`;
         this.headerParts.push(headerElements.join("\n"));
@@ -244,8 +343,8 @@ export class Printer {
                                 height: 100%;
                                 font-size: 2rem;
                             }
-                            @media print {
-                                .title-page {
+                           
+                            .title-page,  .cover-img  {
                                     text-align: center;
                                     height: 100vh;
                                     width: 100vw;                       
@@ -261,7 +360,6 @@ export class Printer {
                                     align-items: center;
                                     justify-content: center;
                                 }
-                                
                                 .title {
                                     font-size: 3rem;
                                     font-weight: bold;
@@ -274,16 +372,6 @@ export class Printer {
                                 .printed-with-hint {
                                     font-size: 0.7rem;
                                 }
-                                
-                                .cover-img {
-                                    width: 100vw;
-                                    height: 100vh;
-                                    overflow: hidden;
-                                }
-                                .cover-img img {
-                                    width: 100%;
-                                    height: 100%;
-                                }
                                 a.backlink {
                                     float: right;
                                     border: solid 1px #dddddd;
@@ -291,13 +379,6 @@ export class Printer {
                                     color: #bbbbbb !important;
                                     border-radius: 8px;;
                                 } 
-                            
-                                .print-hidden {
-                                    display: none;
-                                }
-                                .print {
-                                    display: initial;
-                                }
                                 table {
                                     width: 100%;                                    
                                     text-align: center;
@@ -315,12 +396,13 @@ export class Printer {
                                 }
                                 td {
                                     border: 1px solid #e0dcdc;
-                                    padding: 5px 20px;
+                                    padding: 5px 10px;
                                 }
                                 th {
                                     border: 1px solid #e0dcdc;
                                     padding: 12px 20px;
                                 }
+                                
                                 h1 {
                                     border-bottom: 3px solid #47D18C;
                                     margin-bottom: 0.5em;
@@ -333,7 +415,9 @@ export class Printer {
                                     break-after: avoid !important;
                                     break-before: initial !important;
                                 }
-                                
+                                h4 {
+                                    font-size: 18px;
+                                }
                                 figcaption {
                                     text-align: center;
                                 } 
@@ -341,18 +425,23 @@ export class Printer {
                                     max-width: 100%;
                                 }       
                                 h1, h2.compendium-hr {
+                                ${this.config.headingOnNewPage ? `
                                     break-before: always;
                                     page-break-before: always;
+                                ` : `
+                                    break-before: initial;
+                                    page-break-before: initial;
+                                `}
                                 } 
                                 .print-section {
                                     break-after: always; 
                                     page-break-after: always; 
                                 } 
-                                h2.heading-anchor, caption {
+                                caption {
                                     break-before: avoid; 
                                     page-break-before: avoid
                                 }
-                                h1, h2, h3 {
+                                h1, h2, h3, h4 {
                                     break-after: avoid;
                                     page-break-after: avoid;
                                 } 
@@ -378,10 +467,18 @@ export class Printer {
                                 img.compendium-center-banner-img {
                                     width: 100%;
                                 }
-                                ${this.config.includeCover ? `@page :first {
-                                    margin: 0;
-                                    size: 420mm 297mm;
-                                }` : ""}
+                                @page {
+                                    size: 210mm 297mm
+                                    margin: 30px
+                                }
+                            
+                            @media print {
+                                .print-hidden {
+                                    display: none;
+                                }
+                                .print {
+                                    display: initial;
+                                }
                             }
                         </style>
                         ${body}
@@ -389,14 +486,21 @@ export class Printer {
     }
 
     private createHtmlParts() {
+        const tableOfContents = Array.from(this.baseDoc?.querySelectorAll(Printer.SELECTORS.TOC) ?? []).map(toc => toc.outerHTML);
+        if (tableOfContents) {
+            this.bodyParts.unshift(`<div class="print-section">${tableOfContents.join("\n")}</div>`);
+        }
+
         return [this.headerParts.join("\n"), `${this.preTableOfContentParts.join("\n")}
-                        <div class="print-section"> ${this.baseDoc?.querySelector('.compendium-toc-full-text')?.outerHTML}</div>
                         ${this.bodyParts.join("\n")}`] as [string, string];
     }
 
-    async calculateHtmlParts() {
-        this.baseDoc = await Printer.fetch(this.url);
+    async waitBetweenRequests() {
+        await new Promise(r => setTimeout(r, this.config.minPageDelay + Math.random() * (this.config.maxPageDelay - this.config.minPageDelay)));
+    }
 
+    async calculateHtmlPartsForMultipleSites() {
+        await this.loadBaseDocument();
         await this.addTitlePageIntroduction();
         await this.extractCover();
         await this.extractIntroduction();
@@ -404,12 +508,114 @@ export class Printer {
         await this.extractBaseSiteLinks();
 
         await ArrayHelper.asyncForEach(this.subPages, async (subPage, index) => {
-            console.log(subPage);
+            log(subPage);
             await this.doUrl(subPage);
-            await new Promise(r => setTimeout(r, this.config.minPageDelay + Math.random() * (this.config.maxPageDelay - this.config.minPageDelay)));
+            await this.waitBetweenRequests();
             this.onProgress?.(index + 1, this.subPages.length);
         });
         return this.createHtmlParts();
+    }
+
+    async calculateHtmlPartsForSingleSite() {
+        await this.loadBaseDocument();
+        await this.addTitlePageIntroduction();
+        // await this.extractIntroduction();
+
+        this.subPages = [this.url];
+        await this.extractBaseSiteLinks();
+
+        await ArrayHelper.asyncForEach(this.subPages, async (subPage, index) => {
+            log(subPage);
+            await this.doUrl(subPage);
+            await this.waitBetweenRequests();
+            this.onProgress?.(index + 1, this.subPages.length);
+        });
+        return this.createHtmlParts();
+    }
+
+    private async downloadHtml(html: string) {
+        if (!this.baseDoc) {
+            return;
+        }
+
+        const styleSheets = this.baseDoc.querySelectorAll<HTMLLinkElement>("head link[rel='stylesheet']");
+        const stylesheetParts: string[] = [];
+        await ArrayHelper.asyncForEach(Array.from(styleSheets), async styleSheet => {
+            stylesheetParts.push(await fetch(styleSheet.href).then(res => res.text()));
+            await this.waitBetweenRequests();
+        });
+
+        const printContent = document.createElement("span");
+        printContent.innerHTML = `<style>${stylesheetParts.join("")}</style>${html}`;
+
+        const printHint = document.createElement("span");
+        printHint.innerText = "Waiting for images...";
+        printHint.style.display = "flex";
+        printHint.style.flexDirection = "column";
+        printHint.style.height = "100vh";
+        printHint.style.width = "100vw";
+        printHint.style.justifyContent = "center";
+        printHint.style.alignItems = "center";
+        printHint.style.fontSize = "3rem";
+        document.body.innerHTML = ``;
+        document.body.appendChild(printHint);
+
+        const images = printContent.querySelectorAll("img") ?? [];
+        let imgCounter = 0;
+        await ArrayHelper.asyncForEach(Array.from(images), async img => {
+            const blob = await fetch(img.src).then(res => res.blob());
+            await new Promise<void>(r => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    img.src = reader.result as string;
+                    imgCounter++;
+                    if (printHint) {
+                        printHint.innerText = `Waiting for images... (${imgCounter}/${images.length})`;
+                    }
+                    r();
+                };
+                reader.readAsDataURL(blob);
+            });
+            await this.waitBetweenRequests();
+        });
+        const donePromise = new PromiseWithHandlers();
+        if (printHint && this.baseDoc) {
+            const hint = this.baseDoc.createElement("div");
+            hint.innerText = `All images loaded! Starting download...`;
+            printHint.innerText = "";
+            printHint.appendChild(hint);
+
+            if (this.config.waitForUserConfirmationAfterPrint) {
+                hint.innerText += " Click the button after download.";
+                const [button] = createButton("I've printed!");
+                button.addEventListener("click", () => {
+                    this.onDoneListener();
+                    donePromise.resolve();
+                });
+
+                printHint.appendChild(button);
+            }
+        } else {
+            setTimeout(() => {
+                donePromise.resolve();
+            }, 10);
+        }
+
+        const fullHtml = `
+        <html lang="en">
+            <head>
+                <title>${this.extractTitle()}</title>
+                <meta charset='UTF-8'/>
+            </head>
+            <body>${encodeURIComponent(printContent.outerHTML)}</body>
+        </html>`;
+
+        const downloadLink = document.createElement("a");
+        downloadLink.download = this.extractTitle(true).replaceAll(" ", "");
+        downloadLink.href = `data:text/html;charset=UTF-8,${fullHtml}`;
+        downloadLink.click();
+
+        await donePromise;
     }
 
     private async printHtml(html: string) {
@@ -437,14 +643,33 @@ export class Printer {
 
         // Wait for pictures to load;
         await Promise.all(promises);
-        if (printHint) {
-            printHint.innerText = `All images loaded! If printing does not start automatically, print manually (STRG+P). Reload after printing.`;
+
+        const donePromise = new PromiseWithHandlers();
+        if (printHint && this.config.waitForUserConfirmationAfterPrint && this.baseDoc) {
+            const hint = this.baseDoc.createElement("div");
+            hint.innerText = `All images loaded! If printing does not start automatically, print manually (STRG+P). Click the button after printing.`;
+            const [button] = createButton("I've printed!");
+            button.addEventListener("click", () => {
+                this.onDoneListener();
+                donePromise.resolve();
+            });
+
+            printHint.innerText = "";
+            printHint.style.flexDirection = "column";
+            printHint.appendChild(hint);
+            printHint.appendChild(button);
+        } else {
+            donePromise.resolve();
         }
         window.print();
+        await donePromise;
     }
 
-    async print() {
-        this.baseDoc = await Printer.fetch(this.url);
+    async createHtml() {
+        if (!this.baseDoc) {
+            return "";
+        }
+
         const buttons = this.baseDoc.querySelectorAll(".essentials-button");
 
         let html = "";
@@ -462,7 +687,7 @@ export class Printer {
                         const [realDone, realFrom] = Object.values(progresses).reduce(([doneOld, fromOld], [doneNew, fromNew]) => ([doneOld + doneNew, fromOld + fromNew]), [0, 0]);
                         this.onProgress?.(realDone, realFrom);
                     })
-                        .calculateHtmlParts().then(parts => r(parts));
+                        .calculateHtmlPartsForMultipleSites().then(parts => r(parts));
                 }));
             });
             const parts = await Promise.all(htmlPromises);
@@ -470,11 +695,49 @@ export class Printer {
                 return [oldHead + newHead, oldBody + newBody];
             }, ["", ""] as [string, string]);
             html = this.getBookHtml(head, body);
-
+        } else if (!this.isSinglePage()) {
+            const [head, body] = await this.calculateHtmlPartsForMultipleSites();
+            html = this.getBookHtml(head, body);
         } else {
-            const [head, body] = await this.calculateHtmlParts();
+            const [head, body] = await this.calculateHtmlPartsForSingleSite();
             html = this.getBookHtml(head, body);
         }
-        await this.printHtml(html);
+        return html;
+    }
+
+    async print() {
+        await this.loadBaseDocument();
+        if (!this.baseDoc) {
+            return;
+        }
+
+        const html = await this.createHtml();
+        if (this.config.downloadHtml) {
+            await this.downloadHtml(html);
+        } else {
+            await this.printHtml(html);
+        }
+
+        if (!this.config.waitForUserConfirmationAfterPrint) {
+            this.onDoneListener();
+        }
+    }
+
+    async hasAccessToBook() {
+        await this.loadBaseDocument();
+
+        if (this.isSinglePage()) {
+            return !!this.baseDoc?.querySelector(".p-article-content");
+        }
+
+        const linkOfSubpage = this.baseDoc?.querySelector<HTMLLinkElement>(".compendium-toc-full-text a")?.href;
+
+        if (linkOfSubpage) {
+            const page = await Printer.fetch(linkOfSubpage);
+            return page.querySelector('.p-article-content');
+        }
+
+        // TODO single page books
+        return false;
     }
 }

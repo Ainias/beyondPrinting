@@ -15,12 +15,21 @@
         "https://dndbeyond.com/sources/*"
       ],
       "js": ["contentScript.bundle.js"]
+    },
+    {
+      "matches": [
+        "https://www.dndbeyond.com/sources",
+        "https://dndbeyond.com/sources"
+      ],
+      "js": ["printAll.bundle.js"]
     }
   ],
   "action": {
     "default_icon": "img/dndSingle64.png"
   },
   "permissions": [
+    "printerProvider",
+    "printing"
   ],
   "host_permissions": [
     "https://*.dndbeyond.com/",
