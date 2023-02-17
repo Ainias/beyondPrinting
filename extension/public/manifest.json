@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "short_name": "BeyondPrinting",
   "name": "__MSG_appName__",
   "description": "__MSG_appDesc__",
@@ -28,8 +28,6 @@
     "default_icon": "img/dndSingle64.png"
   },
   "permissions": [
-    "printerProvider",
-    "printing"
   ],
   "host_permissions": [
     "https://*.dndbeyond.com/",
