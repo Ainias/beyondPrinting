@@ -1,5 +1,6 @@
 import {log} from "../helper/log";
 import {ArrayHelper, PromiseWithHandlers} from "js-helper";
+import {ProgressListenerInterface, ProgressType} from "../ProgressListener/ProgressListenerInterface";
 import {createButton} from "../helper/createButton";
 
 const extensionName = "BeyondPrinting";
@@ -32,6 +33,8 @@ export class Printer {
         headingOnNewPage: true,
 
         waitForUserConfirmationAfterPrint: false,
+        version: 1,
+
     };
 
     private readonly url: string;
@@ -49,15 +52,13 @@ export class Printer {
 
     private singlePage: boolean | undefined = undefined;
 
-    private onDoneListener = () => window.location.reload();
 
-    private onProgress?: (done: number, from: number) => void;
+    private progressListener: ProgressListenerInterface;
 
-    constructor(url: string, config: Partial<Printer["config"]> = {}, onProgress?: Printer["onProgress"], onDone = () => window.location.reload()) {
+    constructor(url: string, config: Partial<Printer["config"]> = {}, progressListener: ProgressListenerInterface) {
         this.url = url;
         this.config = {...this.config, ...config};
-        this.onProgress = onProgress;
-        this.onDoneListener = onDone;
+        this.progressListener = progressListener;
     }
 
     public isSinglePage() {
@@ -74,7 +75,7 @@ export class Printer {
     }
 
     public static async fetch(url: string) {
-        return fetch(url).then(r => r.text()).then(html => new DOMParser().parseFromString(html, "text/html"));
+        return fetch(url, {mode: "no-cors"}).then(r => r.text()).then(html => new DOMParser().parseFromString(html, "text/html"));
     }
 
     private async extractBaseSiteLinks() {
@@ -111,7 +112,7 @@ export class Printer {
     }
 
     extractTitle(excludeForDnDHint = false) {
-        let title = this.baseDoc?.querySelector<HTMLHeadingElement>(".page-title")?.innerText ?? "";
+        let title = (this.baseDoc?.querySelector<HTMLHeadingElement>(".page-title")?.innerText ?? "").trim();
         if (title && this.config.includeForDndInTitle && !excludeForDnDHint) {
             title += " for Dungeons and Dragons Fifth Edition";
         }
@@ -172,7 +173,7 @@ export class Printer {
         if (!this.baseDoc || !this.config.includeCover) {
             return;
         }
-        const link = this.baseDoc.querySelector<HTMLAnchorElement>(".view-cover-art a")?.href;
+        const link = this.baseDoc.querySelector<HTMLAnchorElement>(".view-cover-art a")?.href ?? this.baseDoc.querySelector<HTMLAnchorElement>("a.view-cover-art")?.href ?? this.baseDoc.querySelector<HTMLAnchorElement>("#CoverImage a")?.href;
         log("Cover-Art lint", link);
         if (link) {
             this.preTableOfContentParts.push(`<div class="print-section cover-img">
@@ -249,17 +250,17 @@ export class Printer {
             });
         }
 
-
         pageDocument.querySelectorAll<HTMLLinkElement>("figure > a + figcaption > a[data-title='View Player Version']").forEach(linkElem => {
             if (this.config.useBigMapImages) {
                 const dmFigureElement = linkElem.parentElement?.parentElement as HTMLElement | undefined;
                 const dmImgElem = dmFigureElement?.querySelector("img") as HTMLImageElement | undefined;
-                const dmLinkElem = dmFigureElement?.firstElementChild as HTMLLinkElement | undefined;
-                if (dmImgElem && dmLinkElem) {
+                const dmLinkElem = dmFigureElement?.querySelector("a") as HTMLLinkElement | undefined;
+                if (dmImgElem && dmLinkElem && dmLinkElem.href) {
                     dmImgElem.src = dmLinkElem.href;
                     dmImgElem.style.width = "100%";
                 }
             }
+
             if (this.config.includePlayerVersionMaps) {
                 linkElem.classList.remove("ddb-lightbox-outer");
                 linkElem.classList.add("compendium-image-center");
@@ -333,9 +334,10 @@ export class Printer {
         return `<div>
                         ${head}
                         <style>
-                            .print {
-                                display: none;
-                            }
+                        body {
+                            overflow: hidden;
+                            background: url(https://www.dndbeyond.com/attachments/0/84/background_texture.png) #f9f9f9 !important;
+                        }
                             .print-hidden {
                                 display: flex;
                                 justify-content: center;
@@ -343,6 +345,15 @@ export class Printer {
                                 height: 100%;
                                 font-size: 2rem;
                             }
+                           
+                           .flexible-double-column > *{
+                                flex-basis: 0;
+                                flex-grow: 1;
+                           }
+                           .flexible-double-column__column-width-35pct, .flexible-double-column__column-width-45pct {
+                                flex-basis: initial !important;
+                                flex-grow: initial !important;
+                           }
                            
                             .title-page,  .cover-img  {
                                     text-align: center;
@@ -396,11 +407,11 @@ export class Printer {
                                 }
                                 td {
                                     border: 1px solid #e0dcdc;
-                                    padding: 5px 10px;
+                                    padding: 5px 5px;
                                 }
                                 th {
                                     border: 1px solid #e0dcdc;
-                                    padding: 12px 20px;
+                                    padding: 12px 10px;
                                 }
                                 
                                 h1 {
@@ -474,7 +485,7 @@ export class Printer {
                             
                             @media print {
                                 .print-hidden {
-                                    display: none;
+                                    display: none !important;
                                 }
                                 .print {
                                     display: initial;
@@ -487,7 +498,7 @@ export class Printer {
 
     private createHtmlParts() {
         const tableOfContents = Array.from(this.baseDoc?.querySelectorAll(Printer.SELECTORS.TOC) ?? []).map(toc => toc.outerHTML);
-        if (tableOfContents) {
+        if (tableOfContents.length > 0) {
             this.bodyParts.unshift(`<div class="print-section">${tableOfContents.join("\n")}</div>`);
         }
 
@@ -511,7 +522,7 @@ export class Printer {
             log(subPage);
             await this.doUrl(subPage);
             await this.waitBetweenRequests();
-            this.onProgress?.(index + 1, this.subPages.length);
+            this.progressListener.updateProgress(ProgressType.SUBPAGE, index + 1, this.subPages.length);
         });
         return this.createHtmlParts();
     }
@@ -519,6 +530,7 @@ export class Printer {
     async calculateHtmlPartsForSingleSite() {
         await this.loadBaseDocument();
         await this.addTitlePageIntroduction();
+        await this.extractCover();
         // await this.extractIntroduction();
 
         this.subPages = [this.url];
@@ -528,7 +540,7 @@ export class Printer {
             log(subPage);
             await this.doUrl(subPage);
             await this.waitBetweenRequests();
-            this.onProgress?.(index + 1, this.subPages.length);
+            this.progressListener.updateProgress(ProgressType.SUBPAGE, index + 1, this.subPages.length);
         });
         return this.createHtmlParts();
     }
@@ -548,58 +560,44 @@ export class Printer {
         const printContent = document.createElement("span");
         printContent.innerHTML = `<style>${stylesheetParts.join("")}</style>${html}`;
 
-        const printHint = document.createElement("span");
-        printHint.innerText = "Waiting for images...";
-        printHint.style.display = "flex";
-        printHint.style.flexDirection = "column";
-        printHint.style.height = "100vh";
-        printHint.style.width = "100vw";
-        printHint.style.justifyContent = "center";
-        printHint.style.alignItems = "center";
-        printHint.style.fontSize = "3rem";
-        document.body.innerHTML = ``;
-        document.body.appendChild(printHint);
-
         const images = printContent.querySelectorAll("img") ?? [];
-        let imgCounter = 0;
-        await ArrayHelper.asyncForEach(Array.from(images), async img => {
-            const blob = await fetch(img.src).then(res => res.blob());
-            await new Promise<void>(r => {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                    img.src = reader.result as string;
-                    imgCounter++;
-                    if (printHint) {
-                        printHint.innerText = `Waiting for images... (${imgCounter}/${images.length})`;
-                    }
-                    r();
-                };
-                reader.readAsDataURL(blob);
-            });
+        await ArrayHelper.asyncForEach(Array.from(images), async (img, index) => {
+            this.progressListener.updateProgress(ProgressType.IMAGE, index + 1, images.length);
+            try {
+                const blob = await fetch(img.src, {mode: "no-cors"}).then(res => res.blob());
+                await new Promise<void>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        img.src = reader.result as string;
+                        resolve();
+                    };
+                    reader.onerror = () => {
+                        reject(new Error(`Failed to load image ${img.src}`));
+                    };
+                    setTimeout(() => reject(new Error(`Failed to load image ${img.src} because of timeout`)), 3000);
+                    reader.readAsDataURL(blob);
+                });
+            } catch (error: any) {
+                this.progressListener.addErrorMessage(error?.message ?? error);
+            }
             await this.waitBetweenRequests();
         });
+
         const donePromise = new PromiseWithHandlers();
-        if (printHint && this.baseDoc) {
-            const hint = this.baseDoc.createElement("div");
-            hint.innerText = `All images loaded! Starting download...`;
-            printHint.innerText = "";
-            printHint.appendChild(hint);
-
-            if (this.config.waitForUserConfirmationAfterPrint) {
-                hint.innerText += " Click the button after download.";
-                const [button] = createButton("I've printed!");
-                button.addEventListener("click", () => {
-                    this.onDoneListener();
-                    donePromise.resolve();
-                });
-
-                printHint.appendChild(button);
-            }
+        let hint = `All images loaded! Starting download...`;
+        if (this.config.waitForUserConfirmationAfterPrint) {
+            hint += " Click the button after download.";
+            const [button] = createButton("I've printed!");
+            button.addEventListener("click", () => {
+                donePromise.resolve();
+            });
+            this.progressListener.addElement(button);
         } else {
             setTimeout(() => {
                 donePromise.resolve();
             }, 10);
         }
+        this.progressListener.onDone(hint);
 
         const fullHtml = `
         <html lang="en">
@@ -611,7 +609,7 @@ export class Printer {
         </html>`;
 
         const downloadLink = document.createElement("a");
-        downloadLink.download = this.extractTitle(true).replaceAll(" ", "");
+        downloadLink.download = this.extractTitle(true).replaceAll(" ", "_");
         downloadLink.href = `data:text/html;charset=UTF-8,${fullHtml}`;
         downloadLink.click();
 
@@ -619,11 +617,7 @@ export class Printer {
     }
 
     private async printHtml(html: string) {
-        document.body.innerHTML = `<span class='print-hidden'>Waiting for images...</span>`;
-        document.body.className = "";
         document.title = this.extractTitle(true);
-
-        const printHint = document.querySelector<HTMLSpanElement>(".print-hidden");
 
         const printContent = document.createElement("span");
         printContent.classList.add("print");
@@ -632,35 +626,44 @@ export class Printer {
         const images = printContent.querySelectorAll("img") ?? [];
         let imgCounter = 0;
         const promises: Promise<void>[] = [];
-        images.forEach(img => promises.push(new Promise(r => (img.onload = () => {
+        images.forEach((img) => promises.push(new Promise<void>((resolve, reject) => {
+            img.onload = () => {
+                resolve();
+            };
+            img.onerror = () => {
+                log("Image could not be loaded", img);
+                reject(new Error(`Failed to load image ${img.src}\n`));
+            };
+        }).catch((error: any) => {
+            this.progressListener.addErrorMessage(error?.message ?? error);
+        }).finally(() => {
             imgCounter++;
-            if (printHint) {
-                printHint.innerText = `Waiting for images... (${imgCounter}/${images.length})`;
-            }
-            r();
-        }))));
-        document.body.appendChild(printContent);
+            this.progressListener.updateProgress(ProgressType.IMAGE, imgCounter, images.length);
+            // printProgress.innerText = `Waiting for images... (${imgCounter}/${images.length})`;
+        })));
+        this.progressListener.setHtmlElement(printContent);
+
+        // Workaround for a bug in chrome (or brave) where a table prints on two pages even though there is enough space on the first page.
+        printContent.querySelectorAll("table").forEach(table => {
+            const {height} = table.getBoundingClientRect();
+            table.style.height = `${Math.ceil(height)}px`;
+        });
 
         // Wait for pictures to load;
         await Promise.all(promises);
 
         const donePromise = new PromiseWithHandlers();
-        if (printHint && this.config.waitForUserConfirmationAfterPrint && this.baseDoc) {
-            const hint = this.baseDoc.createElement("div");
-            hint.innerText = `All images loaded! If printing does not start automatically, print manually (STRG+P). Click the button after printing.`;
+        if (this.config.waitForUserConfirmationAfterPrint) {
             const [button] = createButton("I've printed!");
             button.addEventListener("click", () => {
-                this.onDoneListener();
                 donePromise.resolve();
             });
-
-            printHint.innerText = "";
-            printHint.style.flexDirection = "column";
-            printHint.appendChild(hint);
-            printHint.appendChild(button);
+            this.progressListener.addElement(button);
+            this.progressListener.onDone("All images loaded! If printing does not start automatically, print manually (CTRL+P). Click the button after printing.");
         } else {
             donePromise.resolve();
         }
+
         window.print();
         await donePromise;
     }
@@ -672,7 +675,7 @@ export class Printer {
 
         const buttons = this.baseDoc.querySelectorAll(".essentials-button");
 
-        let html = "";
+        let html: string;
         if (buttons.length > 0 && buttons[0].classList.contains("essentials-button--active")) {
             const htmlPromises: Promise<[string, string]>[] = [];
             const progresses: Record<number, [number, number]> = {};
@@ -682,10 +685,39 @@ export class Printer {
                 }
 
                 htmlPromises.push(new Promise<[string, string]>(r => {
-                    new Printer(button.querySelector<HTMLAnchorElement>("a")?.href ?? "", {...this.config}, (done, from) => {
-                        progresses[index] = [done, from];
-                        const [realDone, realFrom] = Object.values(progresses).reduce(([doneOld, fromOld], [doneNew, fromNew]) => ([doneOld + doneNew, fromOld + fromNew]), [0, 0]);
-                        this.onProgress?.(realDone, realFrom);
+                    // eslint-disable-next-line @typescript-eslint/no-this-alias
+                    const me = this;
+                    new Printer(button.querySelector<HTMLAnchorElement>("a")?.href ?? "", {...this.config}, new class implements ProgressListenerInterface {
+                        // eslint-disable-next-line class-methods-use-this
+                        addErrorMessage(text: string): void {
+                            me.progressListener.addErrorMessage(text);
+                        }
+
+                        // eslint-disable-next-line class-methods-use-this,@typescript-eslint/no-empty-function
+                        clear(): void {
+                        }
+
+                        // eslint-disable-next-line class-methods-use-this
+                        updateProgress(type: ProgressType, done: number, from: number): void {
+                            if (type !== ProgressType.SUBPAGE) {
+                                return;
+                            }
+                            progresses[index] = [done, from];
+                            const [realDone, realFrom] = Object.values(progresses).reduce(([doneOld, fromOld], [doneNew, fromNew]) => ([doneOld + doneNew, fromOld + fromNew]), [0, 0]);
+                            me.progressListener.updateProgress(ProgressType.SUBPAGE, realDone, realFrom);
+                        }
+
+                        // eslint-disable-next-line class-methods-use-this,@typescript-eslint/no-empty-function
+                        onDone() {
+                        }
+
+                        // eslint-disable-next-line class-methods-use-this,@typescript-eslint/no-empty-function
+                        addElement() {
+                        }
+
+                        // eslint-disable-next-line @typescript-eslint/no-empty-function,class-methods-use-this
+                        setHtmlElement() {
+                        }
                     })
                         .calculateHtmlPartsForMultipleSites().then(parts => r(parts));
                 }));
@@ -695,11 +727,11 @@ export class Printer {
                 return [oldHead + newHead, oldBody + newBody];
             }, ["", ""] as [string, string]);
             html = this.getBookHtml(head, body);
-        } else if (!this.isSinglePage()) {
-            const [head, body] = await this.calculateHtmlPartsForMultipleSites();
+        } else if (this.isSinglePage()) {
+            const [head, body] = await this.calculateHtmlPartsForSingleSite();
             html = this.getBookHtml(head, body);
         } else {
-            const [head, body] = await this.calculateHtmlPartsForSingleSite();
+            const [head, body] = await this.calculateHtmlPartsForMultipleSites();
             html = this.getBookHtml(head, body);
         }
         return html;
@@ -716,10 +748,6 @@ export class Printer {
             await this.downloadHtml(html);
         } else {
             await this.printHtml(html);
-        }
-
-        if (!this.config.waitForUserConfirmationAfterPrint) {
-            this.onDoneListener();
         }
     }
 

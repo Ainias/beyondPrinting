@@ -3,8 +3,8 @@ import {OPTIONS_KEY} from "./showOptionsDialog";
 import {log} from "../helper/log";
 
 let options: Printer["config"] = {
-    minPageDelay: 0,
-    maxPageDelay: 0,
+    minPageDelay: 100,
+    maxPageDelay: 200,
     strippedTables: true,
     includeCover: true,
     includeIntroduction: true,
@@ -23,13 +23,21 @@ let options: Printer["config"] = {
     headingOnNewPage: true,
 
     waitForUserConfirmationAfterPrint: false,
+    version: 1,
 };
 
 try {
     const optionsString = localStorage.getItem(OPTIONS_KEY);
     if (optionsString) {
+        const parsedOptions = JSON.parse(optionsString);
+
+        if (!("version" in parsedOptions) || parsedOptions.version < 1) {
+            parsedOptions.minPageDelay = options.minPageDelay;
+            parsedOptions.maxPageDelay = options.maxPageDelay;
+        }
+
         // To keep default for new values
-        options = {...options, ...JSON.parse(optionsString)};
+        options = {...options, ...parsedOptions};
     } else {
         log("No saved options present, useDefaultOptions");
     }

@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "node --openssl-legacy-provider scripts/build.js",
-    "build-dev": "node --openssl-legacy-provider scripts/build.js --dev"
+    "build": "node scripts/build.js",
+    "build-dev": "node scripts/build.js --dev"
   },
   "dependencies": {
+    "caniuse-lite": "^1.0.30001522",
     "copy-webpack-plugin": "^11.0.0"
   },
   "devDependencies": {
@@ -60,7 +61,6 @@
     "postcss-normalize": "8.0.1",
     "postcss-preset-env": "6.7.0",
     "postcss-safe-parser": "5.0.2",
-    "typeorm": "^0.3.11",
     "prettier": "^2.3.2",
     "prompts": "2.4.0",
     "react-dev-utils": "^12.0.1",
@@ -76,6 +76,7 @@
     "terser-webpack-plugin": "5.3.3",
     "ts-node": "^10.9.1",
     "ts-pnp": "1.2.0",
+    "typeorm": "^0.3.11",
     "typescript": "^4.5.5",
     "url-loader": "4.1.1",
     "web-vitals": "^1.1.2",

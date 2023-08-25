@@ -1,5 +1,6 @@
 import {Printer} from "../Printer/Printer";
 import {createCheckbox} from "./createCheckbox";
+import {createInput} from "./createInput";
 
 export const OPTIONS_KEY="Beyond-Printing-Printing-Options";
 
@@ -84,6 +85,22 @@ export function showOptionsDialog(options: Printer["config"]){
     }));
     modal.appendChild(createCheckbox("Wait for user confirmation after print/download", options.waitForUserConfirmationAfterPrint, (enabled) => {
         options.waitForUserConfirmationAfterPrint = enabled;
+        saveOptions();
+    }));
+    modal.appendChild(createInput("Min delay between requests (in MS)", options.minPageDelay.toString(), (newValue) => {
+        options.minPageDelay = parseInt(newValue, 10);
+        if (Number.isNaN(options.minPageDelay)) {
+            options.minPageDelay = 0;
+        }
+
+        saveOptions();
+    }));
+    modal.appendChild(createInput("Max delay between requests (in MS)", options.maxPageDelay.toString(), (newValue) => {
+        options.maxPageDelay = parseInt(newValue, 10);
+        if (Number.isNaN(options.maxPageDelay)) {
+            options.maxPageDelay = 0;
+        }
+
         saveOptions();
     }));
 

@@ -3,7 +3,7 @@ import { showOptionsDialog} from "../options/showOptionsDialog";
 import {printOptions} from "../options/defaultOptions";
 import {MultiPrinter} from "../Printer/MultiPrinter";
 
-const [printButton, printButtonText] = createButton("Print All");
+const [printButton] = createButton("Print All");
 const [settingsButton] = createButton("Settings");
 
 let enabled = true;
@@ -13,7 +13,7 @@ printButton.addEventListener('click', async () => {
     }
     enabled = false;
 
-    await new MultiPrinter(printOptions, (text) => (printButtonText.innerText = text)).printAll();
+    await new MultiPrinter(printOptions).printAll();
     printButton.removeAttribute("disabled");
     enabled = true;
 });

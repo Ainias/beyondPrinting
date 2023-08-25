@@ -2,6 +2,7 @@ import {Printer} from "../Printer/Printer";
 import {createButton} from "../helper/createButton";
 import {showOptionsDialog} from "../options/showOptionsDialog";
 import {printOptions} from "../options/defaultOptions";
+import {ProgressListener} from "../ProgressListener/ProgressListener";
 
 const [printButton, printButtonText] = createButton("Print");
 const [settingsButton] = createButton("Settings");
@@ -16,9 +17,8 @@ printButton.addEventListener('click', async () => {
     try {
         printButton.setAttribute("disabled", "disabled");
         printButtonText.innerText = "Waiting for pages...";
-        await new Printer(window.location.href, printOptions, (done, from) => {
-            printButtonText.innerText = `Waiting for pages...(${done}/${from})`;
-        }).print();
+        await new Printer(window.location.href, printOptions, new ProgressListener()).print();
+        window.location.reload();
     } catch (e: any) {
         alert(e.message ?? e);
     }
