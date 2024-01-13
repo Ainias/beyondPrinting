@@ -1,5 +1,5 @@
 import {Printer} from "./Printer";
-import {ArrayHelper, PromiseWithHandlers} from "js-helper";
+import {ArrayHelper, PromiseWithHandlers} from "@ainias42/js-helper";
 import {log} from "../helper/log";
 import {MultiPrinterProgressListener} from "../ProgressListener/MultiPrinterProgressListener";
 import {ProgressType} from "../ProgressListener/ProgressListenerInterface";
@@ -10,7 +10,7 @@ export class MultiPrinter {
 
     private config: Printer["config"];
 
-    private readonly LINK_TO_VIEW_ALL = "/sources"
+    private readonly LINK_TO_VIEW_ALL = "/sources";
 
     constructor(config: Printer["config"]) {
         this.config = config;

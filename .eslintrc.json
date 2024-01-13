@@ -91,6 +91,7 @@
     "react/destructuring-assignment": ["error", "always", { "ignoreClassFields": true }],
     "react/state-in-constructor": ["error", "never"],
 
+    "no-promise-executor-return": "off",
     "max-classes-per-file": "off",
     "import/no-extraneous-dependencies": "off",
     "no-return-assign": ["error", "except-parens"],

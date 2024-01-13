@@ -1,5 +1,5 @@
 import {log} from "../helper/log";
-import {ArrayHelper, PromiseWithHandlers} from "js-helper";
+import {ArrayHelper, PromiseWithHandlers} from "@ainias42/js-helper";
 import {ProgressListenerInterface, ProgressType} from "../ProgressListener/ProgressListenerInterface";
 import {createButton} from "../helper/createButton";
 
@@ -9,7 +9,7 @@ export class Printer {
 
     private static readonly SELECTORS = {
         TOC: '.compendium-toc-full-text',
-    }
+    };
 
     private readonly config = {
         minPageDelay: 0,
@@ -40,7 +40,7 @@ export class Printer {
     private readonly url: string;
 
     private baseDoc?: Document;
-    private mainLinkElements: Record<string, HTMLAnchorElement> = {}
+    private mainLinkElements: Record<string, HTMLAnchorElement> = {};
     private linkElementsWithFragments: Record<string, HTMLAnchorElement[]> = {};
 
     private subPages: string[] = [];
@@ -55,7 +55,7 @@ export class Printer {
 
     private progressListener: ProgressListenerInterface;
 
-    constructor(url: string, config: Partial<Printer["config"]> = {}, progressListener: ProgressListenerInterface) {
+    constructor(url: string, config: Partial<Printer["config"]>, progressListener: ProgressListenerInterface) {
         this.url = url;
         this.config = {...this.config, ...config};
         this.progressListener = progressListener;
@@ -507,7 +507,7 @@ export class Printer {
     }
 
     async waitBetweenRequests() {
-        await new Promise(r => setTimeout(r, this.config.minPageDelay + Math.random() * (this.config.maxPageDelay - this.config.minPageDelay)));
+        await new Promise<void>(r => setTimeout(r, this.config.minPageDelay + Math.random() * (this.config.maxPageDelay - this.config.minPageDelay)));
     }
 
     async calculateHtmlPartsForMultipleSites() {

@@ -3,3 +3,5 @@ node_modules/
 extension/dev/
 extension/build/
 .env.local
+extension/beyondPrinting.zip
+extension/tsconfig.tsbuildinfo
