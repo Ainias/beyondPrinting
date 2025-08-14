@@ -1,10 +1,11 @@
 {
-  "name": "dm-screen",
+  "name": "beyond-printing",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "build": "node scripts/build.js",
-    "build-dev": "node scripts/build.js --dev"
+    "build-dev": "node scripts/build.js --dev",
+    "zip": "(rm extension/beyondPrinting.zip || true) && (rm extension/build/.DS_Store || true) && cd extension/build && zip -r ../beyondPrinting.zip *"
   },
   "dependencies": {
     "caniuse-lite": "^1.0.30001576",
