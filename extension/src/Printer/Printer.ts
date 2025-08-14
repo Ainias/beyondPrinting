@@ -335,7 +335,7 @@ export class Printer {
                         ${head}
                         <style>
                         body {
-                            overflow: hidden;
+                            overflow: auto;
                             background: url(https://www.dndbeyond.com/attachments/0/84/background_texture.png) #f9f9f9 !important;
                         }
                             .print-hidden {
