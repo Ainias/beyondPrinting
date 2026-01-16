@@ -571,7 +571,7 @@ export class Printer {
                         img.src = reader.result as string;
                         resolve();
                     };
-                    reader.onerror = (error) => {
+                    reader.onerror = () => {
                         reject(new Error(`Failed to load image ${img.src}`));
                     };
                     setTimeout(() => reject(new Error(`Failed to load image ${img.src} because of timeout`)), 3000);
