@@ -564,21 +564,21 @@ export class Printer {
         await ArrayHelper.asyncForEach(Array.from(images), async (img, index) => {
             this.progressListener.updateProgress(ProgressType.IMAGE, index + 1, images.length);
             try {
-                const blob = await fetch(img.src, {mode: "no-cors"}).then(res => res.blob());
+                const blob = await fetch(img.src).then(res => res.blob());
                 await new Promise<void>((resolve, reject) => {
                     const reader = new FileReader();
                     reader.onloadend = () => {
                         img.src = reader.result as string;
                         resolve();
                     };
-                    reader.onerror = () => {
+                    reader.onerror = (error) => {
                         reject(new Error(`Failed to load image ${img.src}`));
                     };
                     setTimeout(() => reject(new Error(`Failed to load image ${img.src} because of timeout`)), 3000);
                     reader.readAsDataURL(blob);
                 });
             } catch (error: any) {
-                this.progressListener.addErrorMessage(error?.message ?? error);
+                this.progressListener.addErrorMessage(`${img.src }: ${error?.message ?? error}`);
             }
             await this.waitBetweenRequests();
         });
